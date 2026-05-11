@@ -2,205 +2,93 @@
 
 %%writefile vector_add.cu
 
-#include <stdio.h>
-#include <cuda_runtime.h>
+#include<stdio.h>
+#include<cuda_runtime.h>
 
-#define N 1000000
-
-__global__ void vectorAdd(float *A, float *B, float *C, int n) {
-
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if(i < n){
-        C[i] = A[i] + B[i];
-    }
+__global__ void add(int *a,int *b,int *c)
+{
+    int i = threadIdx.x;
+    c[i] = a[i] + b[i];
 }
 
-int main() {
+int main()
+{
+    int a[5]={1,2,3,4,5};
+    int b[5]={5,4,3,2,1};
+    int c[5];
 
-    float *h_A, *h_B, *h_C;
-    float *d_A, *d_B, *d_C;
+    int *d_a,*d_b,*d_c;
 
-    size_t size = N * sizeof(float);
+    cudaMalloc(&d_a,20);
+    cudaMalloc(&d_b,20);
+    cudaMalloc(&d_c,20);
 
-    h_A = (float*)malloc(size);
-    h_B = (float*)malloc(size);
-    h_C = (float*)malloc(size);
+    cudaMemcpy(d_a,a,20,cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b,b,20,cudaMemcpyHostToDevice);
 
-    for(int i = 0; i < N; i++){
-        h_A[i] = i;
-        h_B[i] = i;
-    }
+    add<<<1,5>>>(d_a,d_b,d_c);
 
-    cudaMalloc(&d_A, size);
-    cudaMalloc(&d_B, size);
-    cudaMalloc(&d_C, size);
+    cudaMemcpy(c,d_c,20,cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
 
-    int blockSize = 256;
-    int gridSize = (N + blockSize - 1) / blockSize;
 
-    vectorAdd<<<gridSize, blockSize>>>(d_A, d_B, d_C, N);
-
-    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-
-    printf("First 5 Elements:\n");
-
-    for(int i = 0; i < 5; i++){
-        printf("%.0f ", h_C[i]);
-    }
-
-    printf("\n");
-
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
-
-    free(h_A);
-    free(h_B);
-    free(h_C);
+    for(int i=0;i<5;i++)
+        printf("%d ",c[i]);
 
     return 0;
 }
 
 !nvcc vector_add.cu -o vector_add
-
 !./vector_add
 
 %%writefile matrix_mul.cu
-#include <stdio.h>
-#include <cuda_runtime.h>
 
-#define N 1024           // Large computation size
-#define DISPLAY_N 4      // Rows/columns to display
+#include<stdio.h>
+#include<cuda_runtime.h>
 
-// CUDA Kernel
-__global__ void matrixMul(float *A, float *B, float *C, int n) {
+#define N 2
 
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void multiply(int A[N][N], int B[N][N], int C[N][N])
+{
+    int row = threadIdx.y;
+    int col = threadIdx.x;
 
-    if (row < n && col < n) {
+    C[row][col] = 0;
 
-        float sum = 0.0f;
-
-        for (int k = 0; k < n; k++) {
-            sum += A[row * n + k] * B[k * n + col];
-        }
-
-        C[row * n + col] = sum;
-    }
+    for(int k=0; k<N; k++)
+        C[row][col] += A[row][k] * B[k][col];
 }
 
-int main() {
+int main()
+{
+    int A[N][N] = {{1,2},{3,4}};
+    int B[N][N] = {{5,6},{7,8}};
+    int C[N][N];
 
-    float *h_A, *h_B, *h_C;
-    float *d_A, *d_B, *d_C;
+    int (*d_A)[N], (*d_B)[N], (*d_C)[N];
 
-    size_t size = N * N * sizeof(float);
+    cudaMalloc(&d_A,sizeof(A));
+    cudaMalloc(&d_B,sizeof(B));
+    cudaMalloc(&d_C,sizeof(C));
 
-    // Allocate host memory
-    h_A = (float*)malloc(size);
-    h_B = (float*)malloc(size);
-    h_C = (float*)malloc(size);
+    cudaMemcpy(d_A,A,sizeof(A),cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B,B,sizeof(B),cudaMemcpyHostToDevice);
 
-    // Initialize matrices
-    for (int i = 0; i < N * N; i++) {
-        h_A[i] = (i % 5) + 1;   // Values 1–5
-        h_B[i] = (i % 3) + 1;   // Values 1–3
+    dim3 threads(N,N);
+
+    multiply<<<1,threads>>>(d_A,d_B,d_C);
+
+    cudaMemcpy(C,d_C,sizeof(C),cudaMemcpyDeviceToHost);
+
+    printf("Result:\n");
+
+    for(int i=0;i<N;i++)
+    {
+        for(int j=0;j<N;j++)
+            printf("%d ",C[i][j]);
+
+        printf("\n");
     }
-
-    // ================= MATRIX A =================
-    printf("\nMatrix A (%dx%d):\n", N, N);
-
-    for (int i = 0; i < DISPLAY_N; i++) {
-
-        for (int j = 0; j < DISPLAY_N; j++)
-            printf("%.0f ", h_A[i * N + j]);
-
-        printf("... %.0f\n", h_A[i * N + (N - 1)]);
-    }
-
-    printf("...\n");
-
-    for (int i = N - DISPLAY_N; i < N; i++) {
-
-        for (int j = 0; j < DISPLAY_N; j++)
-            printf("%.0f ", h_A[i * N + j]);
-
-        printf("... %.0f\n", h_A[i * N + (N - 1)]);
-    }
-
-    // ================= MATRIX B =================
-    printf("\nMatrix B (%dx%d):\n", N, N);
-
-    for (int i = 0; i < DISPLAY_N; i++) {
-
-        for (int j = 0; j < DISPLAY_N; j++)
-            printf("%.0f ", h_B[i * N + j]);
-
-        printf("... %.0f\n", h_B[i * N + (N - 1)]);
-    }
-
-    printf("...\n");
-
-    for (int i = N - DISPLAY_N; i < N; i++) {
-
-        for (int j = 0; j < DISPLAY_N; j++)
-            printf("%.0f ", h_B[i * N + j]);
-
-        printf("... %.0f\n", h_B[i * N + (N - 1)]);
-    }
-
-    // Allocate device memory
-    cudaMalloc(&d_A, size);
-    cudaMalloc(&d_B, size);
-    cudaMalloc(&d_C, size);
-
-    // Copy data to GPU
-    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
-
-    // Kernel launch
-    dim3 blockSize(16, 16);
-    dim3 gridSize((N + 15) / 16, (N + 15) / 16);
-
-    matrixMul<<<gridSize, blockSize>>>(d_A, d_B, d_C, N);
-
-    // Copy result back
-    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-
-    // ================= MATRIX C =================
-    printf("\nMatrix C (%dx%d):\n", N, N);
-
-    for (int i = 0; i < DISPLAY_N; i++) {
-
-        for (int j = 0; j < DISPLAY_N; j++)
-            printf("%.0f ", h_C[i * N + j]);
-
-        printf("... %.0f\n", h_C[i * N + (N - 1)]);
-    }
-
-    printf("...\n");
-
-    for (int i = N - DISPLAY_N; i < N; i++) {
-
-        for (int j = 0; j < DISPLAY_N; j++)
-            printf("%.0f ", h_C[i * N + j]);
-
-        printf("... %.0f\n", h_C[i * N + (N - 1)]);
-    }
-
-    // Free memory
-    free(h_A);
-    free(h_B);
-    free(h_C);
-
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
 
     return 0;
 }
